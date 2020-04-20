@@ -48,7 +48,7 @@ def make_request(baseurl, params):
     
 def make_request_with_reddit(param):
     subreddit = reddit.subreddit(param)
-    hot_books = subreddit.hot(limit = 100)
+    hot_books = subreddit.hot(limit = 10)
     res = {}
     for submission in hot_books:
         if not submission.stickied:
@@ -59,49 +59,49 @@ def make_request_with_reddit(param):
 
     return res
 
-def make_request_with_cache(CACHE_DICT, baseurl, params):
+def make_request_with_cache(GOOGLE_CACHE_DICT, baseurl, params):
     request_key = construct_unique_key(baseurl, params)
-    if request_key in CACHE_DICT.keys():
+    if request_key in GOOGLE_CACHE_DICT.keys():
         print("cache hit!", request_key)
-        return CACHE_DICT[request_key]
+        return GOOGLE_CACHE_DICT[request_key]
     else:
         print("cache miss!", request_key)
-        CACHE_DICT[request_key] = make_request(baseurl, params)
-        save_cache(CACHE_DICT, GOOGLE_CACHE_FILENAME)
-        return CACHE_DICT[request_key]
+        GOOGLE_CACHE_DICT[request_key] = make_request(baseurl, params)
+        save_cache(GOOGLE_CACHE_DICT, GOOGLE_CACHE_FILENAME)
+        return GOOGLE_CACHE_DICT[request_key]
 
-def make_request_with_reddit_cache(CACHE_DICT, param):
-    if param in CACHE_DICT.keys():
+def make_request_with_reddit_cache(REDDIT_CACHE_DICT, param):
+    if param in REDDIT_CACHE_DICT.keys():
         print('in cache', param)
-        return CACHE_DICT[param]
+        return REDDIT_CACHE_DICT[param]
     else:
         print('not in cache', param)
-        CACHE_DICT[param] = make_request_with_reddit(param)
-        save_cache(CACHE_DICT, REDDIT_CACHE_FILENAME)
-        return CACHE_DICT[param]
+        REDDIT_CACHE_DICT[param] = make_request_with_reddit(param)
+        save_cache(REDDIT_CACHE_DICT, REDDIT_CACHE_FILENAME)
+        return REDDIT_CACHE_DICT[param]
 
 def get_search_query():
     query = input("Search for a book or author:")
     query = query.replace(" ","")
     return query
 
-def print_book_title():
-    result = make_request_with_cache(CACHE_DICT, baseurl, params)
-    book_info = result['items']
-    for title in book_info:
-        print(title['volumeInfo']['title'])
+# def print_book_title():
+#     result = make_request_with_cache(GOOGLE_CACHE_DICT, baseurl, params)
+#     book_info = result['items']
+#     for title in book_info:
+#         print(title['volumeInfo']['title'])
 
-CACHE_DICT = open_cache(REDDIT_CACHE_FILENAME)
+REDDIT_CACHE_DICT = open_cache(REDDIT_CACHE_FILENAME)
 param = input('Search for a book recommendations: ')
-result = make_request_with_reddit_cache(CACHE_DICT, param)
+result = make_request_with_reddit_cache(REDDIT_CACHE_DICT, param)
 print(result)
 
-CACHE_DICT = open_cache(GOOGLE_CACHE_FILENAME)
+GOOGLE_CACHE_DICT = open_cache(GOOGLE_CACHE_FILENAME)
 baseurl = 'https://www.googleapis.com/books/v1/volumes?'
 query = get_search_query()
 params = {"q":query}
-result = make_request_with_cache(CACHE_DICT, baseurl, params)
-print(print_book_title())
+result = make_request_with_cache(GOOGLE_CACHE_DICT, baseurl, params)
+# print(print_book_title())
 
 DB_NAME = 'reddit_google_books.sqlite'
 
@@ -141,17 +141,17 @@ def create_db():
     ); 
     '''
 
-    cur.execute(drop_books)
-    cur.execute(drop_authors)
-    cur.execute(drop_redditposts)
+    # cur.execute(drop_books)
+    # cur.execute(drop_authors)
+    # cur.execute(drop_redditposts)
     cur.execute(create_books)
     cur.execute(create_authors)
     cur.execute(create_redditposts)
     conn.commit()
     conn.close()
 
-def load_books():
-    result = make_request_with_cache(CACHE_DICT, baseurl, params)
+def load_books(baseurl, params):
+    bookresult = open_cache(GOOGLE_CACHE_FILENAME)
 
     insert_sql = '''
         INSERT INTO Books
@@ -159,8 +159,8 @@ def load_books():
     '''
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
-
-    book_info = result['items']
+    print(bookresult)
+    book_info = bookresult[construct_unique_key(baseurl, params)]['items']
     for title in book_info:
         if title['saleInfo']['saleability'] == "FOR_SALE" and 'averageRating' in title['volumeInfo'].keys():
             cur.execute(insert_sql,
@@ -205,8 +205,8 @@ def load_books():
     conn.commit()
     conn.close()
 
-def load_authors():
-    result = make_request_with_cache(CACHE_DICT, baseurl, params)
+def load_authors(baseurl, params):
+    bookresult = open_cache(GOOGLE_CACHE_FILENAME)
     
     insert_sql = '''
         INSERT INTO Authors
@@ -215,7 +215,7 @@ def load_authors():
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
 
-    book_info = result['items']
+    book_info = bookresult[construct_unique_key(baseurl, params)]['items']
 
     for title in book_info:
         for author in title['volumeInfo']['authors']:
@@ -232,8 +232,8 @@ def load_authors():
     conn.commit()
     conn.close()
         
-def load_redditposts():
-    result = make_request_with_reddit_cache(CACHE_DICT, param)
+def load_redditposts(param):
+    result = open_cache(REDDIT_CACHE_FILENAME)[param]
 
     insert_sql = '''
         INSERT INTO RedditPosts
@@ -241,8 +241,9 @@ def load_redditposts():
     '''
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
-    
+    print(result)
     for title, posts in result.items():
+        print(posts['ups'])
         cur.execute(insert_sql,
             [
                 title,
@@ -254,9 +255,12 @@ def load_redditposts():
     conn.close()    
 
 create_db()
-load_books()
-load_redditposts()
-load_authors()
+load_books(baseurl, params)
+load_redditposts(param)
+load_authors(baseurl, params)
+
+
+
 #         # submission.comments.replace_more(limit=0)
 #         comments = submission.comments.list()
 #         for comment in comments:
