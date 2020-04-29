@@ -9,12 +9,18 @@ import collections
 import re
 import pandas as pd
 import sqlite3
+import flask
+from flask import Flask, render_template, request
+from praw.models import MoreComments
+
 
 GOOGLE_CACHE_FILENAME = "google_cache.json"
 REDDIT_CACHE_FILENAME = "reddit_cache.json"
 
 
 client_google_key = google_secrets.BOOKS_API_KEY
+baseurl = 'https://www.googleapis.com/books/v1/volumes?'
+
 
 reddit = praw.Reddit(client_id = reddit_secrets.CLIENT_ID,
                      client_secret = reddit_secrets.CLIENT_SECRET,
@@ -53,10 +59,9 @@ def make_request_with_reddit(param):
     for submission in hot_books:
         if not submission.stickied:
             res[submission.title] = {}
+            res[submission.title]['id'] = submission.id
             res[submission.title]['ups'] = submission.ups
             res[submission.title]['num_comments'] = submission.num_comments
-            # res[submission.title]['comments'] = submission.comments
-
     return res
 
 def make_request_with_cache(GOOGLE_CACHE_DICT, baseurl, params):
@@ -91,18 +96,6 @@ def get_search_query():
 #     for title in book_info:
 #         print(title['volumeInfo']['title'])
 
-REDDIT_CACHE_DICT = open_cache(REDDIT_CACHE_FILENAME)
-param = input('Search for a book recommendations: ')
-result = make_request_with_reddit_cache(REDDIT_CACHE_DICT, param)
-print(result)
-
-GOOGLE_CACHE_DICT = open_cache(GOOGLE_CACHE_FILENAME)
-baseurl = 'https://www.googleapis.com/books/v1/volumes?'
-query = get_search_query()
-params = {"q":query}
-result = make_request_with_cache(GOOGLE_CACHE_DICT, baseurl, params)
-# print(print_book_title())
-
 DB_NAME = 'reddit_google_books.sqlite'
 
 def create_db():
@@ -127,6 +120,7 @@ def create_db():
         CREATE TABLE IF NOT EXISTS "Authors" (
             "ID"            INTEGER PRIMARY KEY AUTOINCREMENT,
             "BookID"	    TEXT NOT NULL,
+            "BookTitle"	    TEXT NOT NULL,
             "Name"	        TEXT NOT NULL,
             "Language"	    TEXT NOT NULL
     ); 
@@ -162,44 +156,25 @@ def load_books(baseurl, params):
     print(bookresult)
     book_info = bookresult[construct_unique_key(baseurl, params)]['items']
     for title in book_info:
-        if title['saleInfo']['saleability'] == "FOR_SALE" and 'averageRating' in title['volumeInfo'].keys():
+        try: 
+            pb = title['volumeInfo']['publishedDate']
+        except:
+            pb = "Not Known"
+        try: 
+            ar = title['volumeInfo']['averageRating']
+        except: 
+            ar = 'No Rating'
+        try: 
+            lp = title['saleInfo']['listPrice']['amount']
+        except:
+            lp = 'Not for Sale'
             cur.execute(insert_sql,
                 [
                     title['volumeInfo']['title'],
                     title['id'],
-                    title['volumeInfo']['publishedDate'],
-                    title['volumeInfo']['averageRating'],
-                    title['saleInfo']['listPrice']['amount']
-                ]
-            )
-        elif title['saleInfo']['saleability'] == "FOR_SALE" and 'averageRating' not in title['volumeInfo'].keys():
-            cur.execute(insert_sql,
-                [
-                    title['volumeInfo']['title'],
-                    title['id'],
-                    title['volumeInfo']['publishedDate'],
-                    'No Rating',
-                    title['saleInfo']['listPrice']['amount']
-                ]
-            )
-        elif title['saleInfo']['saleability'] == "NOT_FOR_SALE" and 'averageRating' in title['volumeInfo'].keys():
-            cur.execute(insert_sql,
-                [
-                    title['volumeInfo']['title'],
-                    title['id'],
-                    title['volumeInfo']['publishedDate'],
-                    title['volumeInfo']['averageRating'],
-                    'Not for Sale'
-                ]
-            )
-        elif title['saleInfo']['saleability'] == "NOT_FOR_SALE" and 'averageRating' not in title['volumeInfo'].keys():
-            cur.execute(insert_sql,
-                [
-                    title['volumeInfo']['title'],
-                    title['id'],
-                    title['volumeInfo']['publishedDate'],
-                    'No Rating',
-                    'Not for Sale'
+                    pb,
+                    ar,
+                    lp
                 ]
             )
     conn.commit()
@@ -210,7 +185,7 @@ def load_authors(baseurl, params):
     
     insert_sql = '''
         INSERT INTO Authors
-        VALUES (NULL, ?, ?, ?)
+        VALUES (NULL, ?, ?, ?, ?)
     '''
     conn = sqlite3.connect(DB_NAME)
     cur = conn.cursor()
@@ -219,12 +194,10 @@ def load_authors(baseurl, params):
 
     for title in book_info:
         for author in title['volumeInfo']['authors']:
-            # print(title['id'])
-            # print(author)
-            # print(title['volumeInfo']['language'])
             cur.execute(insert_sql,
                 [
                     title['id'],
+                    title['volumeInfo']['title'],
                     author,
                     title['volumeInfo']['language']
                 ]
@@ -252,25 +225,119 @@ def load_redditposts(param):
             ]
         )
     conn.commit()
-    conn.close()    
+    conn.close()   
 
-create_db()
-load_books(baseurl, params)
-load_redditposts(param)
-load_authors(baseurl, params)
+app = Flask(__name__)
+
+@app.route('/')
+def index():
+    return render_template('index.html')
+
+@app.route('/subreddits', methods=['POST'])
+def subreddits():
+    param = request.form["search_term"]
+    search_term = param
+    load_redditposts(param)    
+    REDDIT_CACHE_DICT = open_cache(REDDIT_CACHE_FILENAME)
+    results = make_request_with_reddit_cache(REDDIT_CACHE_DICT, param)
+    subreddits = []
+    for key,value in results.items():
+        ups = value['ups']
+        comments = value['num_comments']
+        title = key 
+        post_id = value['id']
+        post_info = [post_id,title,ups,comments]
+        subreddits.append(post_info)
+    return render_template('subreddits.html', 
+        search_term=search_term,
+        subreddits=subreddits) 
+
+@app.route('/comments', methods=['POST'])
+def comments():
+    post_id = request.form["subreddits"]
+    submission = reddit.submission(id=post_id)
+    comment_list = []
+    for comment in submission.comments:
+        comments = comment.body
+        comment_list.append(comments)
+
+    return render_template('comments.html', 
+        post_id = post_id,
+        comment = comment_list)
+
+def convert_string(s):
+    if s is None:
+        return ''
+    else:
+        return str(s)
+
+def get_book_info(book_query):
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    q = "SELECT BookTitle, PublishedDate, Rating, Price FROM Books WHERE BookTitle LIKE '%" + \
+        convert_string(book_query) + "%' ORDER BY Rating DESC"
+    results = cur.execute(q).fetchall()
+    conn.close()
+
+    return results
+
+def get_num_rating(book_query):
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    n = "SELECT BookTitle, COUNT(Rating) FROM Books WHERE NOT Rating = 'No Rating' AND BookTitle LIKE '%" + \
+        convert_string(book_query) + "%'"
+        
+    num_rating = cur.execute(n).fetchall()
+    conn.close()
+
+    return num_rating 
+
+def get_avg_rating(book_query):
+    conn = sqlite3.connect(DB_NAME)
+    cur = conn.cursor()
+    a = "SELECT BookTitle, AVG(Rating) FROM Books WHERE NOT Rating = 'No Rating' AND BookTitle LIKE '%" + \
+        convert_string(book_query) + "%'"
+        
+
+    avg_rating = cur.execute(a).fetchall()
+    conn.close()
+
+    return avg_rating
+
+@app.route('/books', methods=['POST'])
+def books():
+    book_query = request.form.get('bookname')
+    results = get_book_info(book_query)
+    num_rating = get_num_rating(book_query)[0][1]
+    avg_rating = get_avg_rating(book_query)[0][1]
+
+    return render_template('books.html', 
+        book = book_query,
+        results = results,
+        num_rating = num_rating,
+        avg_rating = avg_rating)
+
+if __name__ == '__main__':   
+    app.run(debug=True)
 
 
 
-#         # submission.comments.replace_more(limit=0)
-#         comments = submission.comments.list()
-#         for comment in comments:
-#             print(20*'-')
-#             print('Parent ID:', comment.parent())
-#             print('Comment ID', comment.id)
-#             print(comment.body)
-#             # if len(comment.replieds) > 0:
-#             #     for reply in comment.replies:
-#             #         print('REPLY',reply.body)
+
+# REDDIT_CACHE_DICT = open_cache(REDDIT_CACHE_FILENAME)
+# param = input('Search for a book recommendations: ')
+# result = make_request_with_reddit_cache(REDDIT_CACHE_DICT, param)
+# print(result)
+
+# GOOGLE_CACHE_DICT = open_cache(GOOGLE_CACHE_FILENAME)
+# baseurl = 'https://www.googleapis.com/books/v1/volumes?'
+# query = get_search_query()
+# params = {"q":query}
+# result = make_request_with_cache(GOOGLE_CACHE_DICT, baseurl, params)
+
+# create_db()
+# load_books(baseurl, params)
+# load_redditposts(param)
+# load_authors(baseurl, params)
 
 
 

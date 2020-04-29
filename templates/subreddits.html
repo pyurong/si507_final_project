@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Redditposts</title>
+</head>
+<body>
+    <form action="/comments" method="POST">
+        <h1>
+            Here are the Subreddits we found for you based on {{search_term}}! <br>
+            Choose one to see the comments.
+        </h1>
+            {% for r in subreddits %}
+                <input type="radio" name="subreddits" value={{r[0]}}>&nbsp;&nbsp;ID:{{r[0]}}:&nbsp;{{r[1]}}<br> 
+                &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<b>Ups</b>:{{r[2]}} and <b>Comments</b>:{{r[3]}}<br><br>
+            {% endfor %}
+            <input type="submit" value="Search Comments"/>
+            <!-- <button class="search-btn" type="button" onclick=submit()></button> -->
+        <p>
+            Search for a different Subreddits <a href='/'>home</a>.
+        </p>
+    </form>
+</body>
+</html>

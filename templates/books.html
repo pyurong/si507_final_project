@@ -1,0 +1,41 @@
+
+<html>
+    <head>
+        <meta charset="utf8"/>
+        <title>Book Search</title>
+        <style>
+            table, th, td {
+                border: 1px solid black;
+                border-collapse: collapse;
+                padding: 5px;
+            }
+        </style>
+    </head>
+    <body>
+        <h1>Information about {{book}} on Google Books</h1>
+
+        <p>
+            There are <b>{{num_rating}}</b> books have rating related to {{book}}<br>
+            And the average rating is <b>{{avg_rating}}</b>
+        </p>
+
+        <table>
+            <tr>
+                <th>Title</th>
+                <th>Published Date</th>
+                <th>Rating</th>
+                <th>price</th>
+            </tr>
+            {% for row in results %}
+            <tr>
+                <td>{{row[0]}}</td>
+                <td>{{row[1]}}</td>
+                <td>{{row[2]}}</td>
+                <td>{{row[3]}}</td>
+            </tr>
+            {% endfor%}
+
+        </table>
+        
+    </body>
+</html>

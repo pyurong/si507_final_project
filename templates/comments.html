@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Redditposts</title>
+</head>
+<body>
+    <form action="/books" method="POST">
+        <h2>
+            Ready to look for the book on Google Books?<br>
+            <input name="bookname" type="text"/>
+            <input type="submit" value="Search"/>
+                
+        </h2>
+    </form> 
+
+    <p>---------------------------------------------------------------------------------------------------<br></p>
+
+    <h1>
+        Comments for <b>ID</b>: {{post_id}}.
+    </h1>
+    
+    <p>
+        <ul>
+        {% for c in comment %}
+            <li>{{c}}</li>
+        {% endfor %}
+        </ul>
+    </p>
+
+</body>
+</html>
